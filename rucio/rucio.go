@@ -45,10 +45,23 @@ type Client struct {
 	RSE     *RSEClient
 }
 
-type authTransport struct {
-	next   http.RoundTripper
-	cert   tls.Certificate
-	cacert tls.Certificate
+type loggingRoundTripper struct {
+	next http.RoundTripper
+}
+
+func (l loggingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	reqDump, _ := httputil.DumpRequestOut(r, true)
+	fmt.Println(string(reqDump))
+
+	resp, err := l.next.RoundTrip(r)
+	if err != nil {
+		return resp, err
+	}
+
+	respDump, _ := httputil.DumpResponse(resp, true)
+	fmt.Println(string(respDump))
+	return resp, err
+}
 
 func NewClient(rucioHost string, authHost string, userAccount string, clientCert string, clientKey string, caPath string, logLevel slog.Level) (*Client, error) {
 
@@ -107,10 +120,11 @@ func NewClient(rucioHost string, authHost string, userAccount string, clientCert
 		},
 	}
 
-}
-
-func (at authTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	return at.next.RoundTrip(r)
+	if logLevel == slog.LevelDebug {
+		clientTransport = &loggingRoundTripper{
+			next: clientTransport,
+		}
+	}
 
 	client := &Client{
 		httpClient: &http.Client{
